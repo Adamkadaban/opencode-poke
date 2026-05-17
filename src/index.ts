@@ -1,4 +1,4 @@
-import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 
 const POKE_CMD = "poke.session"
 const POKE_TITLE = "Poke"
@@ -208,7 +208,7 @@ async function doAbortAndPokeParent(api: TuiPluginApi, parentSessionID: string, 
   api.ui.toast({ variant: "success", message: "Aborted subagent and poked parent" })
 }
 
-export const tui: TuiPlugin = async (api) => {
+const tui: TuiPlugin = async (api) => {
   api.keymap.registerLayer({
     commands: [
       {
@@ -225,3 +225,10 @@ export const tui: TuiPlugin = async (api) => {
     bindings: api.tuiConfig.keybinds.gather("poke.global", [POKE_CMD]),
   })
 }
+
+const plugin: TuiPluginModule = {
+  id: "opencode-poke",
+  tui,
+}
+
+export default plugin
