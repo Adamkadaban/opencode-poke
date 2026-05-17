@@ -1,50 +1,78 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 
-const POKE_CMD = "poke.subagent"
-const POKE_TITLE = "Poke subagent"
-const POKE_DESC = "Abort a stuck subagent and optionally send it a message"
+const POKE_CMD = "poke.session"
+const POKE_TITLE = "Poke"
+const POKE_DESC = "Abort a stuck agent or subagent and optionally send it a message"
 const POLL_INTERVAL = 500
 const POLL_TIMEOUT = 5000
 
-type SubagentInfo = {
+type SessionInfo = {
   id: string
   title: string
   status: string
+  isChild: boolean
 }
 
-async function getActiveSubagents(api: TuiPluginApi, parentSessionID: string): Promise<SubagentInfo[]> {
-  const res = await api.client.session.children({ sessionID: parentSessionID }).catch(() => null)
-  if (!res?.data) return []
+async function getStatusMap(api: TuiPluginApi): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  const res = await api.client.session.status().catch(() => null)
+  if (res?.data) {
+    for (const [id, status] of Object.entries(res.data)) {
+      map.set(id, status.type)
+    }
+  }
+  return map
+}
 
-  const statusMap = new Map<string, string>()
-  const statuses = await api.client.session.status().catch(() => null)
-  if (statuses?.data) {
-    for (const [id, status] of Object.entries(statuses.data)) {
-      statusMap.set(id, status.type)
+async function findBusySessions(api: TuiPluginApi, parentSessionID: string): Promise<SessionInfo[]> {
+  const statusMap = await getStatusMap(api)
+  const busy: SessionInfo[] = []
+
+  // check children first
+  const children = await api.client.session.children({ sessionID: parentSessionID }).catch(() => null)
+  if (children?.data) {
+    for (const child of children.data) {
+      const st = statusMap.get(child.id) ?? "unknown"
+      if (st === "busy" || st === "retry") {
+        busy.push({
+          id: child.id,
+          title: child.title ?? child.id.slice(0, 12),
+          status: st,
+          isChild: true,
+        })
+      }
     }
   }
 
-  return res.data.map((child) => ({
-    id: child.id,
-    title: child.title ?? child.id.slice(0, 12),
-    status: statusMap.get(child.id) ?? "unknown",
-  }))
+  // if no busy children, check the parent itself
+  if (busy.length === 0) {
+    const parentStatus = statusMap.get(parentSessionID) ?? "unknown"
+    if (parentStatus === "busy" || parentStatus === "retry") {
+      const parentSession = await api.client.session.get({ sessionID: parentSessionID }).catch(() => null)
+      busy.push({
+        id: parentSessionID,
+        title: parentSession?.data?.title ?? "Main session",
+        status: parentStatus,
+        isChild: false,
+      })
+    }
+  }
+
+  return busy
 }
 
 async function waitForIdle(api: TuiPluginApi, sessionID: string): Promise<boolean> {
   const start = Date.now()
   while (Date.now() - start < POLL_TIMEOUT) {
-    const statuses = await api.client.session.status().catch(() => null)
-    if (statuses?.data) {
-      const status = statuses.data[sessionID]
-      if (!status || status.type === "idle") return true
-    }
+    const statusMap = await getStatusMap(api)
+    const status = statusMap.get(sessionID)
+    if (!status || status === "idle") return true
     await new Promise((r) => setTimeout(r, POLL_INTERVAL))
   }
   return false
 }
 
-async function pokeSubagent(api: TuiPluginApi) {
+async function poke(api: TuiPluginApi) {
   const route = api.route.current
   if (route.name !== "session" || !route.params) {
     api.ui.toast({ variant: "warning", message: "No active session" })
@@ -52,22 +80,22 @@ async function pokeSubagent(api: TuiPluginApi) {
   }
 
   const sessionID = route.params.sessionID as string
-  const subagents = await getActiveSubagents(api, sessionID)
+  const busy = await findBusySessions(api, sessionID)
 
-  if (subagents.length === 0) {
-    api.ui.toast({ variant: "info", message: "No subagents found for this session" })
+  if (busy.length === 0) {
+    api.ui.toast({ variant: "info", message: "Nothing appears stuck" })
     return
   }
 
-  const statusIcon = (s: string) => {
-    if (s === "busy") return "\u25cf"
-    if (s === "idle") return "\u25cb"
-    if (s === "retry") return "\u25d4"
-    return "?"
+  // single busy session — go straight to action picker
+  if (busy.length === 1) {
+    showAction(api, sessionID, busy[0])
+    return
   }
 
-  const options = subagents.map((s) => ({
-    title: `${statusIcon(s.status)} ${s.title}`,
+  // multiple busy sessions — let user pick
+  const options = busy.map((s) => ({
+    title: `${s.isChild ? "subagent" : "main"}: ${s.title}`,
     value: s,
     description: `${s.status} \u2014 ${s.id.slice(0, 16)}`,
   }))
@@ -75,7 +103,7 @@ async function pokeSubagent(api: TuiPluginApi) {
   api.ui.dialog.setSize("medium")
   api.ui.dialog.replace(() =>
     api.ui.DialogSelect({
-      title: "Poke subagent",
+      title: "Poke which session?",
       options,
       onSelect(option) {
         api.ui.dialog.clear()
@@ -85,65 +113,73 @@ async function pokeSubagent(api: TuiPluginApi) {
   )
 }
 
-function showAction(api: TuiPluginApi, parentSessionID: string, subagent: SubagentInfo) {
-  const actions = [
+type Action = "abort" | "message" | "parent"
+
+function showAction(api: TuiPluginApi, parentSessionID: string, target: SessionInfo) {
+  const label = target.isChild ? "subagent" : "session"
+
+  const actions: Array<{ title: string; value: Action; description: string }> = [
     {
       title: "Abort",
-      value: "abort" as const,
-      description: "Stop the subagent \u2014 parent will see it as failed and can retry",
+      value: "abort",
+      description: `Stop the ${label}`,
     },
     {
       title: "Abort + send message",
-      value: "message" as const,
-      description: "Stop the subagent, then send it a message to continue with new instructions",
-    },
-    {
-      title: "Abort + poke parent",
-      value: "parent" as const,
-      description: "Stop the subagent and tell the parent to retry the task",
+      value: "message",
+      description: `Stop the ${label}, then send it a message to continue`,
     },
   ]
+
+  // only offer "poke parent" for subagents
+  if (target.isChild) {
+    actions.push({
+      title: "Abort + poke parent",
+      value: "parent",
+      description: "Stop the subagent and tell the parent to retry",
+    })
+  }
 
   api.ui.dialog.setSize("medium")
   api.ui.dialog.replace(() =>
     api.ui.DialogSelect({
-      title: `Action for: ${subagent.title}`,
+      title: `Poke: ${target.title}`,
       options: actions,
       onSelect(option) {
         api.ui.dialog.clear()
-        if (option.value === "abort") doAbort(api, subagent)
-        else if (option.value === "message") doAbortAndMessage(api, subagent)
-        else if (option.value === "parent") doAbortAndPokeParent(api, parentSessionID, subagent)
+        if (option.value === "abort") doAbort(api, target)
+        else if (option.value === "message") doAbortAndMessage(api, target)
+        else if (option.value === "parent") doAbortAndPokeParent(api, parentSessionID, target)
       },
     }),
   )
 }
 
-async function doAbort(api: TuiPluginApi, subagent: SubagentInfo) {
-  await api.client.session.abort({ sessionID: subagent.id }).catch(() => null)
-  api.ui.toast({ variant: "success", message: `Aborted: ${subagent.title}` })
+async function doAbort(api: TuiPluginApi, target: SessionInfo) {
+  await api.client.session.abort({ sessionID: target.id }).catch(() => null)
+  api.ui.toast({ variant: "success", message: `Aborted: ${target.title}` })
 }
 
-async function doAbortAndMessage(api: TuiPluginApi, subagent: SubagentInfo) {
+async function doAbortAndMessage(api: TuiPluginApi, target: SessionInfo) {
   api.ui.dialog.setSize("medium")
   api.ui.dialog.replace(() =>
     api.ui.DialogPrompt({
-      title: "Message for subagent",
+      title: "Message after abort",
       placeholder: "e.g. You were stuck. Summarize what you found and return.",
       onConfirm: async (text) => {
         api.ui.dialog.clear()
-        await api.client.session.abort({ sessionID: subagent.id }).catch(() => null)
-        const idle = await waitForIdle(api, subagent.id)
+        await api.client.session.abort({ sessionID: target.id }).catch(() => null)
+        const idle = await waitForIdle(api, target.id)
         if (!idle) {
-          api.ui.toast({ variant: "warning", message: "Subagent didn't go idle after abort \u2014 message may not deliver" })
+          api.ui.toast({ variant: "warning", message: "Session didn't go idle after abort \u2014 message may not deliver" })
         }
         await api.client.session
           .prompt({
-            sessionID: subagent.id,
+            sessionID: target.id,
             parts: [{ type: "text", text }],
           })
           .catch(() => null)
-        api.ui.toast({ variant: "success", message: `Poked: ${subagent.title}` })
+        api.ui.toast({ variant: "success", message: `Poked: ${target.title}` })
       },
       onCancel() {
         api.ui.dialog.clear()
@@ -152,8 +188,8 @@ async function doAbortAndMessage(api: TuiPluginApi, subagent: SubagentInfo) {
   )
 }
 
-async function doAbortAndPokeParent(api: TuiPluginApi, parentSessionID: string, subagent: SubagentInfo) {
-  await api.client.session.abort({ sessionID: subagent.id }).catch(() => null)
+async function doAbortAndPokeParent(api: TuiPluginApi, parentSessionID: string, target: SessionInfo) {
+  await api.client.session.abort({ sessionID: target.id }).catch(() => null)
   const idle = await waitForIdle(api, parentSessionID)
   if (!idle) {
     api.ui.toast({ variant: "warning", message: "Parent didn't go idle \u2014 message may not deliver" })
@@ -164,12 +200,12 @@ async function doAbortAndPokeParent(api: TuiPluginApi, parentSessionID: string, 
       parts: [
         {
           type: "text",
-          text: `The subagent "${subagent.title}" (${subagent.id}) was stuck and has been manually aborted. Please retry the task it was working on.`,
+          text: `The subagent "${target.title}" (${target.id}) was stuck and has been manually aborted. Please retry the task it was working on.`,
         },
       ],
     })
     .catch(() => null)
-  api.ui.toast({ variant: "success", message: `Aborted subagent and poked parent` })
+  api.ui.toast({ variant: "success", message: "Aborted subagent and poked parent" })
 }
 
 export const tui: TuiPlugin = async (api) => {
@@ -183,7 +219,7 @@ export const tui: TuiPlugin = async (api) => {
         namespace: "palette",
         slashName: "poke",
         run() {
-          pokeSubagent(api)
+          poke(api)
         },
       },
     ],
