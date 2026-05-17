@@ -46,7 +46,7 @@ Then add it to your `opencode.json`:
 
 ## Usage
 
-Open the command palette and select **"Poke"**, or use the `/poke` slash command.
+Open the command palette and select **"Poke"**, or bind a keyboard shortcut (see below).
 
 ### Add a keyboard shortcut
 

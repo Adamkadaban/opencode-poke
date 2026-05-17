@@ -217,7 +217,6 @@ export const tui: TuiPlugin = async (api) => {
         desc: POKE_DESC,
         category: "Plugin",
         namespace: "palette",
-        slashName: "poke",
         run() {
           poke(api)
         },
