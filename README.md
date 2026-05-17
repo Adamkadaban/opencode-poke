@@ -23,22 +23,25 @@ See [anomalyco/opencode#13841](https://github.com/anomalyco/opencode/issues/1384
 ## Install
 
 ```bash
+opencode plugin opencode-poke -g
+```
+
+This installs the package globally and updates your `tui.json` automatically.
+
+Or manually:
+
+```bash
 npm install -g opencode-poke
 ```
 
-Then add it to your `opencode.json` as a **TUI plugin** (not a server plugin):
+Then add to your `tui.json`:
 
 ```json
 {
-  "tui": {
-    "plugin": {
-      "opencode-poke": true
-    }
-  }
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin": ["opencode-poke"]
 }
 ```
-
-> **Note:** Do not use `opencode plugin opencode-poke -g` — that installs under `"plugin"` (server plugins), but this is a TUI plugin and must go under `"tui.plugin"`.
 
 ## Usage
 
@@ -46,7 +49,7 @@ Open the command palette and select **"Poke"**, or bind a keyboard shortcut (see
 
 ### Add a keyboard shortcut
 
-Add to your `opencode.json`:
+Add to your `tui.json`:
 
 ```json
 {
