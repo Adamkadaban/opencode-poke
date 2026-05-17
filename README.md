@@ -23,16 +23,10 @@ See [anomalyco/opencode#13841](https://github.com/anomalyco/opencode/issues/1384
 ## Install
 
 ```bash
-opencode plugin opencode-poke -g
-```
-
-Or manually:
-
-```bash
 npm install -g opencode-poke
 ```
 
-Then add it to your `opencode.json`:
+Then add it to your `opencode.json` as a **TUI plugin** (not a server plugin):
 
 ```json
 {
@@ -43,6 +37,8 @@ Then add it to your `opencode.json`:
   }
 }
 ```
+
+> **Note:** Do not use `opencode plugin opencode-poke -g` — that installs under `"plugin"` (server plugins), but this is a TUI plugin and must go under `"tui.plugin"`.
 
 ## Usage
 
@@ -68,7 +64,7 @@ Replace `ctrl+k` with whatever key combo you prefer.
 
 ### Flow
 
-1. Press your keybinding or run `/poke`
+1. Press your keybinding or select "Poke" from the command palette
 2. If one session is stuck, you go straight to the action picker
 3. If multiple are stuck, you pick which one first
 4. Choose an action:
