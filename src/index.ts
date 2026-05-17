@@ -209,21 +209,17 @@ async function doAbortAndPokeParent(api: TuiPluginApi, parentSessionID: string, 
 }
 
 const tui: TuiPlugin = async (api) => {
-  api.keymap.registerLayer({
-    commands: [
-      {
-        name: POKE_CMD,
-        title: POKE_TITLE,
-        desc: POKE_DESC,
-        category: "Plugin",
-        namespace: "palette",
-        run() {
-          poke(api)
-        },
+  api.command!.register(() => [
+    {
+      title: POKE_TITLE,
+      value: POKE_CMD,
+      description: POKE_DESC,
+      category: "Plugin",
+      onSelect() {
+        poke(api)
       },
-    ],
-    bindings: api.tuiConfig.keybinds.gather("poke.global", [POKE_CMD]),
-  })
+    },
+  ])
 }
 
 const plugin: TuiPluginModule = {
