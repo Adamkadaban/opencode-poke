@@ -1,6 +1,6 @@
 {
   "name": "opencode-poke",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "OpenCode TUI plugin to interact with stuck subagents — abort, retry, or send instructions to frozen child sessions",
   "type": "module",
   "exports": {

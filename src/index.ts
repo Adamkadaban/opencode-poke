@@ -174,7 +174,7 @@ async function doAbortAndMessage(api: TuiPluginApi, target: SessionInfo) {
           api.ui.toast({ variant: "warning", message: "Session didn't go idle after abort \u2014 message may not deliver" })
         }
         await api.client.session
-          .prompt({
+          .promptAsync({
             sessionID: target.id,
             parts: [{ type: "text", text }],
           })
@@ -195,7 +195,7 @@ async function doAbortAndPokeParent(api: TuiPluginApi, parentSessionID: string, 
     api.ui.toast({ variant: "warning", message: "Parent didn't go idle \u2014 message may not deliver" })
   }
   await api.client.session
-    .prompt({
+    .promptAsync({
       sessionID: parentSessionID,
       parts: [
         {
